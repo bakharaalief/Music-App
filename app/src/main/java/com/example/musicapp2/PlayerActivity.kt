@@ -3,26 +3,45 @@ package com.example.musicapp2
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.*
-import android.os.Build
+import android.media.Image
+import android.os.*
 import androidx.appcompat.app.AppCompatActivity
-import android.os.Bundle
-import android.os.IBinder
 import android.util.Log
 import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
-import androidx.lifecycle.Observer
+import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 class PlayerActivity : AppCompatActivity() {
-    private var isPlaying = false
+    private var playButtonHandle = false
     private var mBound : Boolean = false
     private lateinit var playbackService: PlaybackService
 
     //about view
     private lateinit var playbackButton : ImageView
+    private lateinit var coverImage : ImageView
+    private lateinit var songTitleText : TextView
+    private lateinit var songArtistText : TextView
+    private lateinit var nextButton : ImageView
     private lateinit var minuteDoneText : TextView
     private lateinit var minuteLeftText : TextView
     private lateinit var seekBar: SeekBar
+
+    //handler
+    private val handler = Handler(Looper.getMainLooper())
+    private lateinit var runnable: Runnable
+
+    //song status
+    private var songDuration = ""
+    private var currentPosition = ""
+    private var songTitle = ""
+    private var songArtist = ""
+    private var coverAlbum = 0
+
+    //music playlist
+    private val musicData = MusicData()
+    private var musicCount = 0
 
     //connection to service
     private val connection = object : ServiceConnection{
@@ -30,6 +49,7 @@ class PlayerActivity : AppCompatActivity() {
             val binder = service as PlaybackService.MyBinder
             playbackService = binder.getService()
             mBound = true
+
             Log.d("Service", "Udah Ngebound")
         }
 
@@ -45,9 +65,24 @@ class PlayerActivity : AppCompatActivity() {
 
         //setview
         playbackButton = findViewById(R.id.playback_button)
+        coverImage = findViewById(R.id.cover_image)
+        songTitleText = findViewById(R.id.song_title)
+        songArtistText = findViewById(R.id.song_artist)
+        nextButton = findViewById(R.id.next_button)
         minuteDoneText = findViewById(R.id.minute_done)
         minuteLeftText = findViewById(R.id.minute_left)
         seekBar = findViewById(R.id.progressBar)
+
+        //set handler to update song
+        runnable = Runnable {
+            if(currentPosition == songDuration){
+                nextMusic()
+            }
+            else{
+                updateMusic()
+                handler.postDelayed(runnable, 100)
+            }
+        }
 
         //bind service
         Intent(this, PlaybackService::class.java).also{
@@ -56,10 +91,15 @@ class PlayerActivity : AppCompatActivity() {
 
         //playback button
         playbackButton.setOnClickListener {
-            when(isPlaying){
+            when(playButtonHandle){
                 true -> pauseMusic()
                 false -> playMusic()
             }
+        }
+
+        //next Button
+        nextButton.setOnClickListener {
+            nextMusic()
         }
 
         //seekbar
@@ -72,41 +112,126 @@ class PlayerActivity : AppCompatActivity() {
 
             override fun onStartTrackingTouch(seekBar: SeekBar?) {
                 playbackService.startTrackingTouch()
+                handler.removeCallbacks(runnable)
             }
 
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 playbackService.stopTrackingTouch()
+                handler.postDelayed(runnable, 100)
             }
         })
     }
 
+    override fun onRestart() {
+        super.onRestart()
+        handler.postDelayed(runnable, 100)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        handler.removeCallbacks(runnable)
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(runnable)
+        unbindService(connection)
+        mBound = false
+        super.onDestroy()
+    }
+
     private fun playMusic(){
-        playbackService.playMusic()
+        randomNum()
+        playbackService.playMusic(musicData.musicList[musicCount])
+
+        //set album
+        updateSongInfo()
 
         //set progressbar
         seekBar.progress = 0
         seekBar.max = playbackService.getDuration()
 
-        //song current duration
-        playbackService.currentDuration.observe(this, Observer {
-            minuteDoneText.text = it.toString()
-            seekBar.progress = it
-        })
+        //set duration
+        currentPosition = songTimeFormat(playbackService.getCurrentPosition())
+        songDuration = songTimeFormat(playbackService.getDuration())
 
-        //song left duration
-        playbackService.leftDuration.observe(this, Observer {
-            minuteLeftText.text = it.toString()
-        })
+        handler.postDelayed(runnable, 100)
 
-        isPlaying = true
+        playButtonHandle = true
         playbackButton.setImageResource(R.drawable.ic_baseline_pause_circle)
     }
 
     private fun pauseMusic(){
         playbackService.pauseMusic()
 
-        isPlaying = false
+        playButtonHandle = false
         playbackButton.setImageResource(R.drawable.ic_baseline_play_circle)
+    }
+
+    private fun nextMusic(){
+        randomNum()
+        playbackService.nextMusic(musicData.musicList[musicCount])
+
+        //update song info
+        updateSongInfo()
+
+        //set progressbar
+        seekBar.progress = 0
+        seekBar.max = playbackService.getDuration()
+
+        //set duration
+        currentPosition = songTimeFormat(playbackService.getCurrentPosition())
+        songDuration = songTimeFormat(playbackService.getDuration())
+
+        handler.postDelayed(runnable, 100)
+
+        playButtonHandle = true
+        playbackButton.setImageResource(R.drawable.ic_baseline_pause_circle)
+    }
+
+    private fun stopMusic(){
+        handler.removeCallbacks(runnable)
+        playbackService.stopMusic()
+
+        playButtonHandle = false
+        playbackButton.setImageResource(R.drawable.ic_baseline_play_circle)
+    }
+
+    private fun updateMusic(){
+        currentPosition = songTimeFormat(playbackService.getCurrentPosition())
+        songDuration = songTimeFormat(playbackService.getDuration())
+        val minuteLeft = songTimeFormat(playbackService.getLeftPosition())
+
+        seekBar.progress = playbackService.getCurrentPosition()
+        minuteDoneText.text = currentPosition
+        minuteLeftText.text = minuteLeft
+    }
+
+    private fun updateSongInfo(){
+        songTitle = musicData.musicTitle[musicCount]
+        songArtist = musicData.artistTitle[musicCount]
+        coverAlbum = musicData.musicAlbum[musicCount]
+
+        songTitleText.text = songTitle
+        songArtistText.text = songArtist
+        coverImage.setImageResource(coverAlbum)
+    }
+
+    private fun randomNum(){
+        var number = Random.nextInt(musicData.musicList.size)
+        while (number == musicCount){
+            number = Random.nextInt(musicData.musicList.size)
+        }
+
+        musicCount = number
+    }
+
+    private fun songTimeFormat(input: Int) : String{
+        val longType = input.toLong()
+
+        return String.format("%02d : %02d",
+            TimeUnit.MILLISECONDS.toMinutes(longType),
+            TimeUnit.MILLISECONDS.toSeconds(longType) - TimeUnit.MINUTES.toSeconds(TimeUnit.MILLISECONDS. toMinutes(longType))
+        )
     }
 
     private fun createChannel(){
@@ -123,11 +248,5 @@ class PlayerActivity : AppCompatActivity() {
                 getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
-    }
-
-    override fun onDestroy() {
-        unbindService(connection)
-        mBound = false
-        super.onDestroy()
     }
 }
