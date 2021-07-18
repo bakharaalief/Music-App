@@ -16,6 +16,14 @@ import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
 class PlayerActivity : AppCompatActivity() {
+
+    companion object {
+        const val INTENT_ACTIVITY = "com.example.musicapp2.INTENT_ACTIVITY"
+        const val NEXT_SONG_ACTIVITY = "NEXT_SONG_ACTIVITY"
+        const val PAUSE_SONG_ACTIVITY = "PAUSE_SONG_ACTIVITY"
+        const val PLAY_SONG_ACTIVITY = "PLAY_SONG_ACTIVITY"
+    }
+
     private var playButtonHandle = false
     private var mBound : Boolean = false
     private lateinit var playbackService: PlaybackService
@@ -44,11 +52,22 @@ class PlayerActivity : AppCompatActivity() {
     //music playlist
     private val musicData = MusicData()
     private var musicCount = 0
+    private var isPlaying = false
 
     //custom Broadcast
-    private val broadcast = CustomBroadcast()
-    private lateinit var customReceiver : BroadcastReceiver
+    private val customReceiver = CustomBroadcast()
     private lateinit var localBroadcastManager: LocalBroadcastManager
+
+    //custom broadcast receiver
+    private val customReceiver2 = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when(intent?.getStringExtra("isi")){
+                NEXT_SONG_ACTIVITY -> nextMusic()
+                PAUSE_SONG_ACTIVITY -> pauseMusic()
+                PLAY_SONG_ACTIVITY -> playMusic()
+            }
+        }
+    }
 
     //connection to service
     private val connection = object : ServiceConnection{
@@ -87,6 +106,17 @@ class PlayerActivity : AppCompatActivity() {
 
         //create channel
         createChannel()
+
+        //register customReceiver
+        localBroadcastManager = LocalBroadcastManager.getInstance(this)
+        val intentFilter = IntentFilter().apply {
+            addAction(PlaybackService.NEXT_SONG)
+        }
+        localBroadcastManager.registerReceiver(customReceiver, intentFilter)
+
+        //register customReceiver2
+        val intentFilter2 = IntentFilter(INTENT_ACTIVITY)
+        registerReceiver(customReceiver2, intentFilter2)
 
         //set handler to update song
         runnable = Runnable {
@@ -132,18 +162,6 @@ class PlayerActivity : AppCompatActivity() {
         })
     }
 
-    override fun onResume() {
-        super.onResume()
-        //register customBrodcast
-//        val filter = IntentFilter().apply {
-//            addAction(PlaybackService.PAUSE_SONG)
-//            addAction(PlaybackService.BEFORE_SONG)
-//            addAction(PlaybackService.NEXT_SONG)
-//        }
-//        localBroadcastManager = LocalBroadcastManager.getInstance(this)
-//        localBroadcastManager.registerReceiver(customReceiver, filter)
-    }
-
     override fun onRestart() {
         super.onRestart()
         handler.postDelayed(runnable, 100)
@@ -157,13 +175,27 @@ class PlayerActivity : AppCompatActivity() {
     override fun onDestroy() {
         handler.removeCallbacks(runnable)
         unbindService(connection)
-//        localBroadcastManager.unregisterReceiver(customReceiver)
+        localBroadcastManager.unregisterReceiver(customReceiver)
+        unregisterReceiver(customReceiver2)
+        stopMusic()
         mBound = false
         super.onDestroy()
     }
 
     private fun playMusic(){
-        randomNum()
+        isPlaying = playbackService.isPlaying()
+
+        if(!isPlaying){
+            //randomNum
+            randomNum()
+
+            //set album
+            updateSongInfo()
+
+            //set progressbar
+            seekBar.progress = 0
+        }
+
         val music = Music(
             musicData.musicTitle[musicCount],
             musicData.musicArtist[musicCount],
@@ -171,12 +203,6 @@ class PlayerActivity : AppCompatActivity() {
             musicData.musicList[musicCount],
         )
         playbackService.playMusic(music)
-
-        //set album
-        updateSongInfo()
-
-        //set progressbar
-        seekBar.progress = 0
         seekBar.max = playbackService.getDuration()
 
         //set duration
