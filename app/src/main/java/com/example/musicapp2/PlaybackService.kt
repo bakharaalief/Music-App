@@ -1,14 +1,17 @@
 package com.example.musicapp2
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.os.*
+import android.support.v4.media.session.MediaSessionCompat
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import com.example.musicapp2.model.Music
 
 class PlaybackService : Service() {
 
@@ -17,18 +20,15 @@ class PlaybackService : Service() {
         const val CHANNEL_ID = "PRIMARY_CHANNEL"
         const val NOTIF_ID = 1
 
-        //action for intent
-        const val PLAY_MUSIC = "PLAY_MUSIC"
-        const val PAUSE_MUSIC = "PAUSE_MUSIC"
-
         //brodcast receiver data
-        const val SONG_DATA = "com.example.musicapp2.SONG_DATA"
-        const val SONG_DURATION = "SONG_DURATION"
-        const val SONG_CURRENT_DURATION = "SONG_CURRENT_DURATION"
+        const val NEXT_SONG = "com.example.musicapp2.NEXT_SONG"
+        const val BEFORE_SONG = "com.example.musicapp2.BEFORE_SONG"
+        const val PAUSE_SONG = "com.example.musicapp2.PAUSE_SONG"
     }
 
     private lateinit var mediaPlayer: MediaPlayer
     private var isPlaying = false
+    private lateinit var music: Music
 
     private val mBinder = MyBinder()
 
@@ -52,24 +52,62 @@ class PlaybackService : Service() {
         super.onDestroy()
     }
 
+    @SuppressLint("NewApi")
     private fun notifBuilder() : NotificationCompat.Builder{
+
+        //media session compat
+        val mediaSession = MediaSessionCompat(this, "PlaybackService")
+        val mediaStyle = androidx.media.app.NotificationCompat.MediaStyle()
+            .setMediaSession(mediaSession.sessionToken)
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_background)
+            .setSmallIcon(R.drawable.ic_baseline_music_note)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setStyle(
+                mediaStyle
+            )
     }
 
     private fun showNotif(){
-        val intent = Intent(this, MainActivity::class.java)
+        //artwork
+        val artWork = BitmapFactory.decodeResource(resources, music.album)
+
+        //content intent
+        val intent = Intent(this, PlayerActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT)
 
-        val builder = notifBuilder()
-            .setContentTitle("My notification")
-            .setContentText("Hello World!")
-            .setContentIntent(pendingIntent)
-
-        with(NotificationManagerCompat.from(this)){
-            notify(NOTIF_ID, builder.build())
+        //before action
+        val beforeSongIntent = Intent(this, CustomBroadcast::class.java).apply {
+            action = BEFORE_SONG
         }
+        val beforeSongPendingIntent = PendingIntent.getBroadcast(this, 0, beforeSongIntent, PendingIntent.FLAG_UPDATE_CURRENT)
+
+        //pause action
+        val pauseSongIntent = Intent(this, CustomBroadcast::class.java).apply {
+            action = PAUSE_SONG
+        }
+        val pauseSongPendingIntent = PendingIntent.getBroadcast(this, 0, beforeSongIntent, PendingIntent.FLAG_UPDATE_CURRENT)
+
+        //next action
+        val nextSongIntent = Intent(this, PlayerActivity.CustomReceiver::class.java).apply {
+            action = NEXT_SONG
+        }
+        val nextSongPendingIntent = PendingIntent.getBroadcast(this, 0, nextSongIntent, PendingIntent.FLAG_UPDATE_CURRENT)
+
+        val builder = notifBuilder()
+            .setLargeIcon(artWork)
+            .setContentTitle(music.title)
+            .setContentText(music.artist)
+            .setContentIntent(pendingIntent)
+            .addAction(R.drawable.ic_baseline_fast_rewind_24, "before_song_intent", beforeSongPendingIntent)
+            .addAction(R.drawable.ic_baseline_pause_24, "pause_song_intent", pauseSongPendingIntent)
+            .addAction(R.drawable.ic_baseline_fast_forward_24, "next_song_intent", nextSongPendingIntent)
+//            .setOngoing(true)
+
+        //music use foreground to start notif
+        startForeground(NOTIF_ID, builder.build())
     }
 
     private fun stopNotif(){
@@ -90,7 +128,7 @@ class PlaybackService : Service() {
         return mediaPlayer.duration - mediaPlayer.currentPosition
     }
 
-    fun playMusic(song : Int){
+    fun playMusic(musicInput : Music){
         //play from pause
         if(isPlaying){
             mediaPlayer.start()
@@ -98,9 +136,12 @@ class PlaybackService : Service() {
 
         //first time play
         else{
-            mediaPlayer = MediaPlayer.create(this, song)
+            music = musicInput
+            mediaPlayer = MediaPlayer.create(this, music.data)
             mediaPlayer.start()
             isPlaying = true
+
+            showNotif()
         }
     }
 
@@ -114,10 +155,10 @@ class PlaybackService : Service() {
         Log.d("Service", "Musik Stop")
     }
 
-    fun nextMusic(song : Int){
+    fun nextMusic(music : Music){
         isPlaying = false
         mediaPlayer.release()
-        playMusic(song)
+        playMusic(music)
     }
 
     fun startTrackingTouch(){

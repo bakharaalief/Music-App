@@ -3,13 +3,15 @@ package com.example.musicapp2
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.*
-import android.media.Image
 import android.os.*
 import androidx.appcompat.app.AppCompatActivity
 import android.util.Log
 import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.example.musicapp2.model.Music
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
@@ -43,6 +45,11 @@ class PlayerActivity : AppCompatActivity() {
     private val musicData = MusicData()
     private var musicCount = 0
 
+    //custom Broadcast
+    private val broadcast = CustomBroadcast()
+    private lateinit var customReceiver : BroadcastReceiver
+    private lateinit var localBroadcastManager: LocalBroadcastManager
+
     //connection to service
     private val connection = object : ServiceConnection{
         override fun onServiceConnected(className: ComponentName?, service: IBinder?) {
@@ -73,6 +80,14 @@ class PlayerActivity : AppCompatActivity() {
         minuteLeftText = findViewById(R.id.minute_left)
         seekBar = findViewById(R.id.progressBar)
 
+        //bind service
+        Intent(this, PlaybackService::class.java).also{
+            bindService(it, connection, Context.BIND_AUTO_CREATE)
+        }
+
+        //create channel
+        createChannel()
+
         //set handler to update song
         runnable = Runnable {
             if(currentPosition == songDuration){
@@ -82,11 +97,6 @@ class PlayerActivity : AppCompatActivity() {
                 updateMusic()
                 handler.postDelayed(runnable, 100)
             }
-        }
-
-        //bind service
-        Intent(this, PlaybackService::class.java).also{
-            bindService(it, connection, Context.BIND_AUTO_CREATE)
         }
 
         //playback button
@@ -122,6 +132,18 @@ class PlayerActivity : AppCompatActivity() {
         })
     }
 
+    override fun onResume() {
+        super.onResume()
+        //register customBrodcast
+//        val filter = IntentFilter().apply {
+//            addAction(PlaybackService.PAUSE_SONG)
+//            addAction(PlaybackService.BEFORE_SONG)
+//            addAction(PlaybackService.NEXT_SONG)
+//        }
+//        localBroadcastManager = LocalBroadcastManager.getInstance(this)
+//        localBroadcastManager.registerReceiver(customReceiver, filter)
+    }
+
     override fun onRestart() {
         super.onRestart()
         handler.postDelayed(runnable, 100)
@@ -135,13 +157,20 @@ class PlayerActivity : AppCompatActivity() {
     override fun onDestroy() {
         handler.removeCallbacks(runnable)
         unbindService(connection)
+//        localBroadcastManager.unregisterReceiver(customReceiver)
         mBound = false
         super.onDestroy()
     }
 
     private fun playMusic(){
         randomNum()
-        playbackService.playMusic(musicData.musicList[musicCount])
+        val music = Music(
+            musicData.musicTitle[musicCount],
+            musicData.musicArtist[musicCount],
+            musicData.musicAlbum[musicCount],
+            musicData.musicList[musicCount],
+        )
+        playbackService.playMusic(music)
 
         //set album
         updateSongInfo()
@@ -169,7 +198,13 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun nextMusic(){
         randomNum()
-        playbackService.nextMusic(musicData.musicList[musicCount])
+        val music = Music(
+            musicData.musicTitle[musicCount],
+            musicData.musicArtist[musicCount],
+            musicData.musicAlbum[musicCount],
+            musicData.musicList[musicCount],
+        )
+        playbackService.nextMusic(music)
 
         //update song info
         updateSongInfo()
@@ -208,7 +243,7 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun updateSongInfo(){
         songTitle = musicData.musicTitle[musicCount]
-        songArtist = musicData.artistTitle[musicCount]
+        songArtist = musicData.musicArtist[musicCount]
         coverAlbum = musicData.musicAlbum[musicCount]
 
         songTitleText.text = songTitle

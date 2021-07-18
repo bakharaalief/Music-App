@@ -18,7 +18,7 @@ class MusicData {
         "More And More",
         "How You Like That"
     )
-    val artistTitle = arrayListOf<String>(
+    val musicArtist = arrayListOf<String>(
         "Yoasobi",
         "Twice",
         "Blackpink"
