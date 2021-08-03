@@ -162,6 +162,7 @@ class PlayerActivity : AppCompatActivity() {
         })
     }
 
+    //alasan taruh di onRestart karena pada saat onResume, boundService belum di init
     override fun onRestart() {
         super.onRestart()
         handler.postDelayed(runnable, 100)
@@ -173,7 +174,6 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(runnable)
         unbindService(connection)
         localBroadcastManager.unregisterReceiver(customReceiver)
         unregisterReceiver(customReceiver2)
